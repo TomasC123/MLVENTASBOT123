@@ -46,49 +46,7 @@ enviar_mensaje(
     "Escribí /ayuda para ver todos los comandos."
 )
 
-# ── SCHEDULES ─────────────────────────────────────────────
-from modulo_preguntas import procesar_preguntas
-from modulo_pricing import procesar_precios
-from modulo_stock import verificar_stock
-from modulo_reporte import generar_reporte
-from modulo_campanas import analizar_campanas
-from modulo_postventa import procesar_postventa
-from modulo_restock import proponer_restock
-from modulo_monitor import verificar_sistema
-from modulo_auth import verificar_y_renovar
-
-# Cada 5 minutos
-schedule.every(5).minutes.do(procesar_preguntas)
-schedule.every(5).minutes.do(procesar_postventa)
-
-# Cada 2 horas
-schedule.every(2).hours.do(verificar_stock)
-schedule.every(2).hours.do(verificar_y_renovar)
-
-# Cada 4 horas
-schedule.every(4).hours.do(procesar_precios)
-
-# Cada 6 horas
-schedule.every(6).hours.do(verificar_sistema)
-
-# Diario
-schedule.every().day.at("11:00").do(analizar_campanas)       # 8am ARG
-schedule.every().day.at("14:00").do(proponer_restock)         # 11am ARG
-schedule.every().day.at("00:00").do(enviar_resumen_diario)    # 9pm ARG
-
-# Semanal
-schedule.every().monday.at("12:00").do(generar_reporte)       # 9am ARG lunes
-
-print("\n📅 Schedules activos:")
-print("   c/5 min  → preguntas + post-venta")
-print("   c/2 hs   → stock + token renewal")
-print("   c/4 hs   → pricing")
-print("   c/6 hs   → monitor sistema")
-print("   8am ARG  → campañas")
-print("   11am ARG → restock")
-print("   9pm ARG  → resumen del día")
-print("   Lunes 9am → reporte semanal\n")
-
+# ── FUNCIÓN RESUMEN DIARIO ────────────────────────────────
 def enviar_resumen_diario():
     from modulo_decisiones import get_decisiones, limpiar
     from modulo_ia import generar_resumen_diario
@@ -101,7 +59,40 @@ def enviar_resumen_diario():
         enviar_mensaje("📋 <b>Resumen del día</b>\n\nSin actividad registrada hoy.")
     limpiar()
 
-# Loop principal
+# ── IMPORTS DE MÓDULOS ────────────────────────────────────
+from modulo_preguntas import procesar_preguntas
+from modulo_pricing import procesar_precios
+from modulo_stock import verificar_stock
+from modulo_reporte import generar_reporte
+from modulo_campanas import analizar_campanas
+from modulo_postventa import procesar_postventa
+from modulo_restock import proponer_restock
+from modulo_monitor import verificar_sistema
+from modulo_auth import verificar_y_renovar
+
+# ── SCHEDULES ─────────────────────────────────────────────
+schedule.every(5).minutes.do(procesar_preguntas)
+schedule.every(5).minutes.do(procesar_postventa)
+schedule.every(2).hours.do(verificar_stock)
+schedule.every(2).hours.do(verificar_y_renovar)
+schedule.every(4).hours.do(procesar_precios)
+schedule.every(6).hours.do(verificar_sistema)
+schedule.every().day.at("11:00").do(analizar_campanas)
+schedule.every().day.at("14:00").do(proponer_restock)
+schedule.every().day.at("00:00").do(enviar_resumen_diario)
+schedule.every().monday.at("12:00").do(generar_reporte)
+
+print("\n📅 Schedules activos:")
+print("   c/5 min  → preguntas + post-venta")
+print("   c/2 hs   → stock + token renewal")
+print("   c/4 hs   → pricing")
+print("   c/6 hs   → monitor sistema")
+print("   8am ARG  → campañas")
+print("   11am ARG → restock")
+print("   9pm ARG  → resumen del día")
+print("   Lunes 9am → reporte semanal\n")
+
+# ── LOOP PRINCIPAL ────────────────────────────────────────
 while True:
     schedule.run_pending()
     from modulo_telegram_bot import escuchar_comandos
