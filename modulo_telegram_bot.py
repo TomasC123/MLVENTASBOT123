@@ -56,16 +56,22 @@ ALIAS = {
 def get_updates():
     global ultimo_update
     try:
-        r = requests.get(
-            f"{BASE}/getUpdates",
-            params={"offset": ultimo_update + 1, "timeout": 10},
-            timeout=15
-        )
-        updates = r.json().get("result", [])
+        url = f"{BASE}/getUpdates"
+        params = {"offset": ultimo_update + 1, "timeout": 10}
+        print(f"📡 Polling Telegram... offset={ultimo_update + 1}")
+        r = requests.get(url, params=params, timeout=15)
+        print(f"📡 Telegram response: {r.status_code}")
+        data = r.json()
+        if not data.get("ok"):
+            print(f"❌ Telegram error: {data}")
+            return []
+        updates = data.get("result", [])
         if updates:
             ultimo_update = updates[-1]["update_id"]
+            print(f"📨 {len(updates)} mensajes recibidos")
         return updates
-    except:
+    except Exception as e:
+        print(f"❌ Error polling Telegram: {e}")
         return []
 
 def procesar_comando(texto, sheets_service=None):
