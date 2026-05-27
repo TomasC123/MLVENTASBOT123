@@ -207,6 +207,13 @@ def escuchar_comandos(sheets_service=None):
         if texto.startswith("/"):
             respuesta = procesar_comando(texto, sheets_service)
             enviar_mensaje(respuesta, chat_id=chat_id)
+        else:
+            # Lenguaje natural — Claude interpreta y ejecuta
+            from modulo_lenguaje_natural import interpretar, ejecutar
+            interpretacion = interpretar(texto)
+            respuesta = ejecutar(interpretacion, sheets_service)
+            if respuesta:
+                enviar_mensaje(respuesta, chat_id=chat_id)
 
 
 def procesar_comando_campanas(texto, partes):
