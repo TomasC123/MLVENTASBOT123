@@ -111,6 +111,10 @@ def autenticar_con_codigo(codigo):
     client_secret = os.getenv("ML_CLIENT_SECRET")
     redirect_uri = os.getenv("ML_REDIRECT_URI", "https://mlventasbot.up.railway.app/callback")
 
+    print(f"🔑 Autenticando con código: {codigo[:20]}...")
+    print(f"🔑 Client ID: {client_id}")
+    print(f"🔑 Redirect URI: {redirect_uri}")
+
     try:
         r = requests.post(
             f"{BASE}/oauth/token",
@@ -123,7 +127,9 @@ def autenticar_con_codigo(codigo):
             },
             timeout=15
         )
+        print(f"🔑 ML OAuth response: {r.status_code}")
         data = r.json()
+        print(f"🔑 ML OAuth data: {data}")
 
         if "access_token" in data:
             guardar_tokens(
@@ -131,13 +137,16 @@ def autenticar_con_codigo(codigo):
                 data.get("refresh_token", ""),
                 data.get("expires_in", 21600)
             )
+            print("✅ Access Token guardado exitosamente")
             enviar_mensaje("✅ <b>Autenticación exitosa</b>\n\nEl sistema está conectado a tu cuenta de ML.")
             return True
         else:
-            enviar_mensaje(f"❌ Error de autenticación: {data.get('message', 'desconocido')}")
+            print(f"❌ Error OAuth: {data}")
+            enviar_mensaje(f"❌ Error de autenticación ML: {data}")
             return False
 
     except Exception as e:
+        print(f"❌ Excepción OAuth: {e}")
         enviar_mensaje(f"❌ Error de conexión: {str(e)}")
         return False
 
