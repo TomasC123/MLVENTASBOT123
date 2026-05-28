@@ -24,7 +24,8 @@ except Exception as e:
 
 # Verificar token al arrancar
 try:
-    from modulo_auth import verificar_y_renovar
+    from modulo_auth import verificar_y_renovar, autenticar_si_hay_codigo
+    autenticar_si_hay_codigo()  # Usa ML_AUTH_CODE si está disponible
     verificar_y_renovar()
     print("✅ Token ML verificado")
 except Exception as e:
