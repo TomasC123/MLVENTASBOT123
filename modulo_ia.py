@@ -1,5 +1,6 @@
 import requests
 import json
+import os
 
 CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
@@ -18,9 +19,11 @@ REGLAS ABSOLUTAS:
 """
 
 def consultar_claude(prompt, max_tokens=500):
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
     headers = {
         "Content-Type": "application/json",
-        "anthropic-version": "2023-06-01"
+        "anthropic-version": "2023-06-01",
+        "x-api-key": api_key
     }
     body = {
         "model": CLAUDE_MODEL,
@@ -31,15 +34,17 @@ def consultar_claude(prompt, max_tokens=500):
     try:
         r = requests.post(CLAUDE_API_URL, headers=headers, json=body, timeout=30)
         data = r.json()
-        return data["content"][0]["text"]
+        if "content" in data:
+            return data["content"][0]["text"]
+        else:
+            print(f"❌ Claude API error: {data}")
+            return None
     except Exception as e:
-        print(f"Error Claude API: {e}")
+        print(f"❌ Error Claude API: {e}")
         return None
 
-# ── DECISIÓN DE PRICING ──────────────────────────────────
 def decidir_precio(producto, costo, precio_actual, precio_min, precio_competidor, dias_sin_vender, reputacion, stock):
     precio_absoluto_min = round(costo * 1.10)
-
     prompt = f"""
 Tomá una decisión de pricing para este producto:
 
@@ -61,7 +66,6 @@ URGENCIA: [NORMAL / ATENCIÓN / CRITICO]
     respuesta = consultar_claude(prompt)
     if not respuesta:
         return None
-
     try:
         lineas = respuesta.strip().split("\n")
         precio = int([l for l in lineas if l.startswith("PRECIO:")][0].split(":")[1].strip())
@@ -72,7 +76,6 @@ URGENCIA: [NORMAL / ATENCIÓN / CRITICO]
     except:
         return None
 
-# ── RESPUESTA INTELIGENTE A PREGUNTAS ────────────────────
 def responder_pregunta_inteligente(pregunta, producto, precio, stock):
     prompt = f"""
 Un comprador hizo esta pregunta en MercadoLibre:
@@ -89,7 +92,6 @@ Si pregunta algo que no podés responder con certeza, decí que lo vas a consult
 """
     return consultar_claude(prompt, max_tokens=200)
 
-# ── GESTIÓN DE RECLAMOS ──────────────────────────────────
 def gestionar_reclamo(reclamo, producto, precio_pagado):
     prompt = f"""
 Un comprador hizo este reclamo en MercadoLibre:
@@ -104,15 +106,12 @@ Escribí una respuesta empática, breve y profesional.
 Máximo 2 oraciones.
 """
     respuesta = consultar_claude(prompt, max_tokens=150)
-
-    # Siempre escalar al dueño
     return {
         "respuesta_comprador": respuesta,
         "escalar": True,
         "motivo": reclamo[:100]
     }
 
-# ── ANÁLISIS DE OPORTUNIDADES ────────────────────────────
 def analizar_oportunidades(ventas_semana, stock_actual, tendencias_ml):
     prompt = f"""
 Analizá esta situación del negocio y sugerí una acción concreta:
@@ -134,7 +133,6 @@ URGENCIA: [BAJA / MEDIA / ALTA]
 """
     return consultar_claude(prompt, max_tokens=300)
 
-# ── REPORTE SEMANAL INTELIGENTE ──────────────────────────
 def generar_resumen_ejecutivo(datos_semana):
     prompt = f"""
 Generá un resumen ejecutivo semanal del negocio basado en estos datos:
@@ -151,8 +149,6 @@ Tono directo, como un socio de negocio. Sin paja.
 """
     return consultar_claude(prompt, max_tokens=400)
 
-
-# ── RESUMEN DIARIO DE DECISIONES ─────────────────────────
 def generar_resumen_diario(decisiones_del_dia):
     prompt = f"""
 Resumí las decisiones que tomó el sistema hoy de forma clara y directa.
