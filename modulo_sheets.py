@@ -12,7 +12,7 @@ SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "TU_SHEET_ID_AQUI")
 
 HEADERS_PRODUCTOS = [
     'Activo', 'Código ULI', 'Producto', 'Costo ($)',
-    'Precio Mín ($)', 'Precio Máx ($)', 'Stock Alerta',
+    'Precio Min ($)', 'Precio Max ($)', 'Stock Alerta',
     'ID MercadoLibre', 'Precio Actual ($)', 'Margen Min (%)'
 ]
 
@@ -38,8 +38,8 @@ class SheetsManager:
                     "codigo_uli": r.get("Código ULI", ""),
                     "nombre": r.get("Producto", ""),
                     "costo": int(r.get("Costo ($)", 0) or 0),
-                    "precio_min": int(r.get("Precio Mín ($)", 0) or 0),
-                    "precio_max": int(r.get("Precio Máx ($)", 0) or 0),
+                    "precio_min": int(r.get("Precio Min ($)", 0) or 0),
+                    "precio_max": int(r.get("Precio Max ($)", 0) or 0),
                     "stock_alerta": int(r.get("Stock Alerta", 3) or 3),
                     "activo": r.get("Activo") == "SI",
                 })
