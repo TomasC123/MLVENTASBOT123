@@ -2,7 +2,6 @@ import requests
 import json
 from config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, PRODUCTOS
 from telegram_utils import enviar_mensaje
-from modulo_ia import responder_pregunta_inteligente
 
 BASE = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 ultimo_update = 0
@@ -103,11 +102,10 @@ def procesar_comando(texto, sheets_service=None):
         return "\n".join(lineas)
 
     elif cmd == "/precio" and len(partes) >= 5:
-        # /precio cable min 6000 max 9000
         try:
             alias = partes[1]
-            codigo = ALIAS.get(alias)
-            if not codigo:
+            codigo_uli = ALIAS.get(alias)
+            if not codigo_uli:
                 return f"❌ Producto '{alias}' no encontrado. Usá: {', '.join(ALIAS.keys())}"
 
             min_idx = partes.index("min")
@@ -118,9 +116,11 @@ def procesar_comando(texto, sheets_service=None):
             if nuevo_min >= nuevo_max:
                 return "❌ El precio mínimo debe ser menor al máximo."
 
-            # Actualizar en memoria
+            nombre = None
+            viejo_min = 0
+            viejo_max = 0
             for p in PRODUCTOS:
-                if p["id"] == codigo:
+                if p["codigo_uli"] == codigo_uli:
                     viejo_min = p["precio_min"]
                     viejo_max = p["precio_max"]
                     p["precio_min"] = nuevo_min
@@ -128,12 +128,14 @@ def procesar_comando(texto, sheets_service=None):
                     nombre = p["nombre"]
                     break
 
-            # Actualizar en Sheets si está conectado
+            if not nombre:
+                return f"❌ Producto '{alias}' no encontrado en el sistema."
+
             if sheets_service:
-                sheets_service.actualizar_rango(codigo, nuevo_min, nuevo_max)
+                sheets_service.actualizar_rango(codigo_uli, nuevo_min, nuevo_max)
 
             return (
-                f"✅ <b>Precio actualizado</b>\n\n"
+                f"✅ <b>Rango de precio actualizado</b>\n\n"
                 f"Producto: {nombre}\n"
                 f"Min: ${viejo_min:,} → ${nuevo_min:,}\n"
                 f"Max: ${viejo_max:,} → ${nuevo_max:,}\n\n"
@@ -144,29 +146,31 @@ def procesar_comando(texto, sheets_service=None):
 
     elif cmd in ["/activar", "/desactivar"] and len(partes) >= 2:
         alias = partes[1]
-        codigo = ALIAS.get(alias)
-        if not codigo:
+        codigo_uli = ALIAS.get(alias)
+        if not codigo_uli:
             return f"❌ Producto '{alias}' no encontrado."
 
         activo = cmd == "/activar"
+        nombre = None
         for p in PRODUCTOS:
-            if p["id"] == codigo:
+            if p["codigo_uli"] == codigo_uli:
                 p["activo"] = activo
                 nombre = p["nombre"]
                 break
 
+        if not nombre:
+            return f"❌ Producto '{alias}' no encontrado en el sistema."
+
         if sheets_service:
-            sheets_service.actualizar_estado(codigo, "SI" if activo else "NO")
+            sheets_service.actualizar_estado(codigo_uli, "SI" if activo else "NO")
 
         estado = "activado ✅" if activo else "pausado ⏸"
         return f"Producto <b>{nombre}</b> {estado}."
 
-    # Campañas
     resultado_campana = procesar_comando_campanas(texto, partes)
     if resultado_campana:
         return resultado_campana
 
-    # Restock
     elif cmd == "/aprobar_restock":
         from modulo_restock import aprobar_restock
         return aprobar_restock()
@@ -175,7 +179,6 @@ def procesar_comando(texto, sheets_service=None):
         from modulo_restock import rechazar_restock
         return rechazar_restock()
 
-    # Sistema
     elif cmd == "/estado":
         from modulo_monitor import verificar_sistema
         verificar_sistema()
@@ -208,20 +211,21 @@ def escuchar_comandos(sheets_service=None):
             respuesta = procesar_comando(texto, sheets_service)
             enviar_mensaje(respuesta, chat_id=chat_id)
         else:
-            # Lenguaje natural — Claude interpreta y ejecuta
             from modulo_lenguaje_natural import interpretar, ejecutar
             interpretacion = interpretar(texto)
             respuesta = ejecutar(interpretacion, sheets_service)
             if respuesta:
                 enviar_mensaje(respuesta, chat_id=chat_id)
 
-
 def procesar_comando_campanas(texto, partes):
-    from modulo_campanas import (
-        get_campanas_activas, analizar_campanas,
-        pausar_campana, activar_campana,
-        aprobar_campana, rechazar_campana, aprobar_todas
-    )
+    try:
+        from modulo_campanas import (
+            get_campanas_activas, analizar_campanas,
+            pausar_campana, activar_campana,
+            aprobar_campana, rechazar_campana, aprobar_todas
+        )
+    except Exception as e:
+        return None
 
     cmd = partes[0]
 
