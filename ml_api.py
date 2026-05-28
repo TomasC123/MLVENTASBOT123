@@ -8,7 +8,16 @@ def get_headers():
 
 def get_mis_publicaciones():
     try:
-        r = requests.get(f"{BASE}/users/me/items/search", headers=get_headers(), timeout=15)
+        r_user = requests.get(f"{BASE}/users/me", headers=get_headers(), timeout=15)
+        user_id = r_user.json().get("id")
+        if not user_id:
+            print(f"⚠️ No se pudo obtener user ID: {r_user.json()}")
+            return []
+        r = requests.get(
+            f"{BASE}/users/{user_id}/items/search",
+            headers=get_headers(),
+            timeout=15
+        )
         data = r.json()
         if "results" not in data:
             print(f"⚠️ get_mis_publicaciones error: {data}")
@@ -73,8 +82,12 @@ def actualizar_precio(item_id, precio_nuevo):
 
 def get_ventas_recientes():
     try:
+        r_user = requests.get(f"{BASE}/users/me", headers=get_headers(), timeout=15)
+        user_id = r_user.json().get("id")
+        if not user_id:
+            return []
         r = requests.get(
-            f"{BASE}/orders/search?seller=me&sort=date_desc",
+            f"{BASE}/orders/search?seller={user_id}&sort=date_desc",
             headers=get_headers(),
             timeout=15
         )
