@@ -140,3 +140,11 @@ def autenticar_con_codigo(codigo):
     except Exception as e:
         enviar_mensaje(f"❌ Error de conexión: {str(e)}")
         return False
+
+def autenticar_si_hay_codigo():
+    """Si hay un ML_AUTH_CODE en el entorno, lo usa para obtener el Access Token."""
+    codigo = os.getenv("ML_AUTH_CODE", "")
+    if not codigo:
+        return False
+    print(f"🔑 Código de autorización detectado, obteniendo Access Token...")
+    return autenticar_con_codigo(codigo)
