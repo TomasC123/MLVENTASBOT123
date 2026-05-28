@@ -6,20 +6,33 @@ from collections import deque
 CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
-# Historial de conversación — últimos 10 mensajes
 historial = deque(maxlen=10)
 
-SISTEMA = """
+def get_sistema():
+    """Genera el prompt del sistema con datos reales en el momento."""
+    from config import PRODUCTOS
+    from ml_api import get_reputacion
+
+    productos_txt = ""
+    for p in PRODUCTOS:
+        estado = "activo" if p.get("activo") else "inactivo"
+        productos_txt += f"- {p['nombre']} (min ${p['precio_min']:,}, max ${p['precio_max']:,}, costo ${p['costo']:,}, estado: {estado})\n"
+
+    try:
+        rep = get_reputacion()
+        reputacion_txt = f"Nivel: {rep['nivel']}, Transacciones: {rep['transacciones']}"
+    except:
+        reputacion_txt = "No disponible"
+
+    return f"""
 Sos el asistente de gestión de una tienda en MercadoLibre Argentina llamada MLVentasBot.
 El dueño te manda mensajes en lenguaje natural y vos tenés que interpretarlos,
 mantener el hilo de la conversación, y devolver UNA acción concreta en formato JSON.
 
-PRODUCTOS DE LA TIENDA:
-- cable: Cable USB-C a USB-C carga rápida (costo $3.333, min $6.500, max $8.500)
-- hub: Hub USB-C 7 en 1 aluminio (costo $6.200, min $12.000, max $18.000)
-- hdmi: Cable USB-C a HDMI 4K 2m (costo $7.285, min $14.000, max $20.000)
-- microfono: Micrófono corbatero inalámbrico (costo $5.115, min $10.000, max $15.000)
-- impresora: Mini impresora térmica portátil (costo $15.190, min $29.000, max $40.000)
+PRODUCTOS ACTUALES DE LA TIENDA:
+{productos_txt}
+
+REPUTACIÓN ML: {reputacion_txt}
 
 ACCIONES DISPONIBLES:
 - bajar_precios_minimo: baja todos los productos al precio mínimo
@@ -31,31 +44,32 @@ ACCIONES DISPONIBLES:
 - activar_todo: activa todas las publicaciones
 - ver_stock: muestra el stock actual
 - ver_ventas: muestra las ventas del día
+- ver_publicaciones: muestra estado actual de publicaciones en ML
 - reporte: genera el reporte semanal ahora
 - analizar_campanas: analiza campañas con IA
 - proponer_restock: analiza si hay que reponer stock
-- mensaje_libre: cuando el dueño hace una pregunta, pide info o charla
+- mensaje_libre: cuando el dueño hace una pregunta o charla
 
 REGLAS IMPORTANTES:
-- Mantené el hilo de la conversación — si te preguntaron algo antes, recordalo
-- Si el dueño dice "dale" o "sí" después de que vos propusiste algo, ejecutá esa acción
+- Mantené el hilo de la conversación
+- Si el dueño dice "dale" o "sí" después de que propusiste algo, ejecutá esa acción
 - Si no está claro qué quiere, preguntá antes de ejecutar
 - Respondé siempre en español, tono directo y amigable
 - Para acciones de dinero importantes, confirmá antes de ejecutar
+- Nunca inventes datos — si no tenés el dato real, decí que vas a buscarlo
 
 Respondé SOLO con JSON sin texto adicional ni markdown:
-{
+{{
   "accion": "nombre_accion",
   "producto": "nombre_producto_o_null",
   "precio_nuevo": numero_o_null,
   "respuesta": "lo que le vas a decir al dueño"
-}
+}}
 """
 
 def interpretar(mensaje):
-    # Agregar mensaje del usuario al historial
     historial.append({"role": "user", "content": mensaje})
-    
+
     headers = {
         "Content-Type": "application/json",
         "x-api-key": os.getenv("ANTHROPIC_API_KEY", ""),
@@ -64,22 +78,23 @@ def interpretar(mensaje):
     body = {
         "model": CLAUDE_MODEL,
         "max_tokens": 400,
-        "system": SISTEMA,
+        "system": get_sistema(),
         "messages": list(historial)
     }
     try:
         r = requests.post(CLAUDE_API_URL, headers=headers, json=body, timeout=30)
-        texto = r.json()["content"][0]["text"].strip()
+        data = r.json()
+        if "content" not in data:
+            print(f"❌ Claude API error: {data}")
+            return {"accion": "mensaje_libre", "respuesta": "Hubo un error procesando tu mensaje."}
+        texto = data["content"][0]["text"].strip()
         texto = texto.replace("```json", "").replace("```", "").strip()
         resultado = json.loads(texto)
-        
-        # Agregar respuesta del asistente al historial
         historial.append({"role": "assistant", "content": texto})
-        
         return resultado
     except Exception as e:
-        print(f"Error interpretando mensaje: {e}")
-        historial.append({"role": "assistant", "content": '{"accion":"mensaje_libre","producto":null,"precio_nuevo":null,"respuesta":"Hubo un error procesando tu mensaje. Podés intentar de nuevo."}'})
+        print(f"❌ Error interpretando mensaje: {e}")
+        historial.append({"role": "assistant", "content": '{"accion":"mensaje_libre","respuesta":"Hubo un error."}'})
         return {"accion": "mensaje_libre", "respuesta": "Hubo un error procesando tu mensaje. Podés intentar de nuevo."}
 
 def ejecutar(interpretacion, sheets_service=None):
@@ -91,18 +106,34 @@ def ejecutar(interpretacion, sheets_service=None):
     respuesta_base = interpretacion.get("respuesta", "")
 
     try:
-        if accion == "bajar_precios_minimo":
+        if accion == "ver_publicaciones":
+            from ml_api import get_mis_publicaciones, get_publicacion
+            items = get_mis_publicaciones()
+            if not items:
+                return "No encontré publicaciones activas en tu cuenta de ML."
+            lineas = ["📋 <b>Tus publicaciones en ML:</b>\n"]
+            for item_id in items:
+                pub = get_publicacion(item_id)
+                nombre = pub.get("title", item_id)
+                precio = pub.get("price", 0)
+                stock = pub.get("available_quantity", 0)
+                estado = pub.get("status", "unknown")
+                lineas.append(f"• <b>{nombre}</b>\n  Precio: ${precio:,} | Stock: {stock} | Estado: {estado}")
+            return "\n".join(lineas)
+
+        elif accion == "bajar_precios_minimo":
             from config import PRODUCTOS
             from ml_api import actualizar_precio
             for p in PRODUCTOS:
-                actualizar_precio(p["id"], p["precio_min"])
+                if p.get("activo") and p.get("id"):
+                    actualizar_precio(p["id"], p["precio_min"])
             from modulo_decisiones import registrar
             registrar("LENGUAJE_NATURAL", "todos", "Precios bajados al mínimo")
 
         elif accion == "subir_precios_maximo":
             from config import PRODUCTOS
             from ml_api import actualizar_precio
-            productos_target = [p for p in PRODUCTOS if not producto or producto.lower() in p["nombre"].lower()]
+            productos_target = [p for p in PRODUCTOS if p.get("activo") and (not producto or producto.lower() in p["nombre"].lower())]
             for p in productos_target:
                 actualizar_precio(p["id"], p["precio_max"])
             from modulo_decisiones import registrar
@@ -114,30 +145,32 @@ def ejecutar(interpretacion, sheets_service=None):
             precio_nuevo = interpretacion.get("precio_nuevo")
             if producto and precio_nuevo:
                 for p in PRODUCTOS:
-                    if producto.lower() in p["nombre"].lower():
+                    if producto.lower() in p["nombre"].lower() and p.get("activo"):
                         actualizar_precio(p["id"], precio_nuevo)
                         from modulo_decisiones import registrar
                         registrar("LENGUAJE_NATURAL", p["nombre"], f"Precio cambiado a ${precio_nuevo:,}")
                         break
 
         elif accion == "pausar_todo":
-            from config import PRODUCTOS
+            from ml_api import get_mis_publicaciones
             from modulo_auth import get_access_token
+            items = get_mis_publicaciones()
             token = get_access_token()
             headers_ml = {"Authorization": f"Bearer {token}"}
-            for p in PRODUCTOS:
-                requests.put(f"https://api.mercadolibre.com/items/{p['id']}", 
+            for item_id in items:
+                requests.put(f"https://api.mercadolibre.com/items/{item_id}",
                            headers=headers_ml, json={"status": "paused"})
             from modulo_decisiones import registrar
             registrar("LENGUAJE_NATURAL", "todos", "Publicaciones pausadas")
 
         elif accion == "activar_todo":
-            from config import PRODUCTOS
+            from ml_api import get_mis_publicaciones
             from modulo_auth import get_access_token
+            items = get_mis_publicaciones()
             token = get_access_token()
             headers_ml = {"Authorization": f"Bearer {token}"}
-            for p in PRODUCTOS:
-                requests.put(f"https://api.mercadolibre.com/items/{p['id']}", 
+            for item_id in items:
+                requests.put(f"https://api.mercadolibre.com/items/{item_id}",
                            headers=headers_ml, json={"status": "active"})
             from modulo_decisiones import registrar
             registrar("LENGUAJE_NATURAL", "todos", "Publicaciones activadas")
@@ -162,7 +195,8 @@ def ejecutar(interpretacion, sheets_service=None):
             return respuesta_base
 
     except Exception as e:
-        return f"Entendí lo que querés pero hubo un error: {e}"
+        print(f"❌ Error ejecutando acción {accion}: {e}")
+        return f"Entendí lo que querés pero hubo un error ejecutando: {e}"
 
     return f"✅ {respuesta_base}"
 
