@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from telegram_utils import enviar_mensaje
 
 BASE = "https://api.mercadolibre.com"
-
 TOKEN_FILE = "ml_tokens.json"
 
 def guardar_tokens(access_token, refresh_token, expires_in=21600):
@@ -20,11 +19,25 @@ def guardar_tokens(access_token, refresh_token, expires_in=21600):
     print(f"✅ Tokens guardados. Vencen: {data['expires_at']}")
 
 def cargar_tokens():
+    # Primero intenta desde archivo (si el contenedor sigue vivo)
     try:
         with open(TOKEN_FILE, "r") as f:
             return json.load(f)
     except:
-        return None
+        pass
+    # Fallback a variables de entorno de Railway
+    access_token = os.getenv("ML_ACCESS_TOKEN", "")
+    refresh_token = os.getenv("ML_REFRESH_TOKEN", "")
+    if access_token and refresh_token:
+        print("📦 Tokens cargados desde variables de entorno")
+        # Guardarlos en archivo para no depender de env en cada llamada
+        guardar_tokens(access_token, refresh_token, expires_in=3600)
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expires_at": (datetime.now() + timedelta(seconds=3600)).isoformat()
+        }
+    return None
 
 def token_por_vencer(margen_minutos=30):
     tokens = cargar_tokens()
@@ -46,8 +59,7 @@ def renovar_token():
         enviar_mensaje(
             "⚠️ <b>Token ML vencido</b>\n\n"
             "El Access Token venció y no hay refresh token.\n"
-            "Necesitás re-autenticar manualmente.\n"
-            "Escribí /reautenticar para obtener las instrucciones."
+            "Escribí /reautenticar para reconectar."
         )
         return False
 
@@ -94,6 +106,7 @@ def verificar_y_renovar():
     if token_por_vencer(margen_minutos=30):
         print("🔄 Token por vencer — renovando...")
         return renovar_token()
+    print("✅ Token ML verificado")
     return True
 
 def get_url_autenticacion():
@@ -112,8 +125,6 @@ def autenticar_con_codigo(codigo):
     redirect_uri = os.getenv("ML_REDIRECT_URI", "https://mlventasbot.up.railway.app/callback")
 
     print(f"🔑 Autenticando con código: {codigo[:20]}...")
-    print(f"🔑 Client ID: {client_id}")
-    print(f"🔑 Redirect URI: {redirect_uri}")
 
     try:
         r = requests.post(
@@ -127,9 +138,7 @@ def autenticar_con_codigo(codigo):
             },
             timeout=15
         )
-        print(f"🔑 ML OAuth response: {r.status_code}")
         data = r.json()
-        print(f"🔑 ML OAuth data: {data}")
 
         if "access_token" in data:
             guardar_tokens(
@@ -151,9 +160,8 @@ def autenticar_con_codigo(codigo):
         return False
 
 def autenticar_si_hay_codigo():
-    """Si hay un ML_AUTH_CODE en el entorno, lo usa para obtener el Access Token."""
     codigo = os.getenv("ML_AUTH_CODE", "")
     if not codigo:
         return False
-    print(f"🔑 Código de autorización detectado, obteniendo Access Token...")
+    print("🔑 Código de autorización detectado, obteniendo Access Token...")
     return autenticar_con_codigo(codigo)
