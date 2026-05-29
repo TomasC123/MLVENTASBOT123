@@ -1,12 +1,60 @@
 import requests
 import json
 import os
-import time
 from datetime import datetime, timedelta
 from telegram_utils import enviar_mensaje
 
 BASE = "https://api.mercadolibre.com"
 TOKEN_FILE = "ml_tokens.json"
+
+def actualizar_variables_railway(access_token, refresh_token):
+    """Guarda los tokens como variables de entorno en Railway para que persistan."""
+    railway_token = os.getenv("RAILWAY_TOKEN")
+    service_id = os.getenv("RAILWAY_SERVICE_ID")
+    
+    if not railway_token or not service_id:
+        print("⚠️ RAILWAY_TOKEN o RAILWAY_SERVICE_ID no configurados")
+        return False
+
+    query = """
+    mutation upsertVariables($serviceId: String!, $environmentId: String, $variables: VariableInput!) {
+        variableCollectionUpsert(input: {
+            serviceId: $serviceId,
+            environmentId: $environmentId,
+            variables: $variables
+        })
+    }
+    """
+    
+    try:
+        r = requests.post(
+            "https://backboard.railway.app/graphql/v2",
+            headers={
+                "Authorization": f"Bearer {railway_token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "query": query,
+                "variables": {
+                    "serviceId": service_id,
+                    "variables": {
+                        "ML_ACCESS_TOKEN": access_token,
+                        "ML_REFRESH_TOKEN": refresh_token
+                    }
+                }
+            },
+            timeout=15
+        )
+        data = r.json()
+        if "errors" not in data:
+            print("✅ Tokens actualizados en Railway")
+            return True
+        else:
+            print(f"⚠️ Error actualizando Railway: {data['errors']}")
+            return False
+    except Exception as e:
+        print(f"⚠️ No se pudo actualizar Railway: {e}")
+        return False
 
 def guardar_tokens(access_token, refresh_token, expires_in=21600):
     data = {
@@ -17,25 +65,24 @@ def guardar_tokens(access_token, refresh_token, expires_in=21600):
     with open(TOKEN_FILE, "w") as f:
         json.dump(data, f)
     print(f"✅ Tokens guardados. Vencen: {data['expires_at']}")
+    # También guardar en Railway para que persistan ante reinicios
+    actualizar_variables_railway(access_token, refresh_token)
 
 def cargar_tokens():
-    # Primero intenta desde archivo (si el contenedor sigue vivo)
     try:
         with open(TOKEN_FILE, "r") as f:
             return json.load(f)
     except:
         pass
-    # Fallback a variables de entorno de Railway
     access_token = os.getenv("ML_ACCESS_TOKEN", "")
     refresh_token = os.getenv("ML_REFRESH_TOKEN", "")
     if access_token and refresh_token:
         print("📦 Tokens cargados desde variables de entorno")
-        # Guardarlos en archivo para no depender de env en cada llamada
-        guardar_tokens(access_token, refresh_token, expires_in=3600)
+        guardar_tokens(access_token, refresh_token, expires_in=21600)
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_at": (datetime.now() + timedelta(seconds=3600)).isoformat()
+            "expires_at": (datetime.now() + timedelta(seconds=21600)).isoformat()
         }
     return None
 
@@ -87,6 +134,7 @@ def renovar_token():
                 data.get("expires_in", 21600)
             )
             print("✅ Token renovado exitosamente")
+            enviar_mensaje("🔄 <b>Token ML renovado automáticamente</b>")
             return True
         else:
             print(f"❌ Error renovando token: {data}")
