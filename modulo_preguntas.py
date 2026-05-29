@@ -1,22 +1,22 @@
 import re
-from ml_api import get_preguntas_sin_responder, responder_pregunta, get_mis_publicaciones
+from ml_api import get_preguntas_sin_responder, responder_pregunta, get_mis_publicaciones, get_publicacion
 from telegram_utils import enviar_mensaje
 from config import REGLAS_RESPUESTA, CONTEXTO_NEGOCIO, PRODUCTOS
 from modulo_ia import consultar_claude
 
 KEYWORDS = {
-    "envio":          ["envio", "envío", "llega", "despacho", "correo", "manda", "cuando llega"],
-    "stock":          ["stock", "disponible", "hay", "tienen", "queda"],
-    "garantia":       ["garantia", "garantía", "falla", "roto", "defecto", "problema"],
-    "factura":        ["factura", "factur", "comprobante", "ticket"],
-    "mayor":          ["mayor", "mayorista", "por mayor", "cantidad", "varios"],
-    "original":       ["original", "genuino", "legitimo", "legítimo", "trucho", "falso"],
-    "demora":         ["demora", "tarda", "dias", "días", "tiempo"],
-    "retiro":         ["retiro", "buscar", "paso a buscar", "pickup"],
-    "precio_especial":["descuento", "rebaja", "más barato", "oferta", "precio especial"],
-    "reclamo":        ["reclamo", "queja", "mal", "no funciona", "no sirve"],
-    "cambio":         ["cambio", "cambiar", "cambié"],
-    "devolucion":     ["devolucion", "devolución", "devolver", "reembolso"],
+    "envio":           ["envio", "envío", "llega", "despacho", "correo", "manda", "cuando llega"],
+    "stock":           ["stock", "disponible", "hay", "tienen", "queda"],
+    "garantia":        ["garantia", "garantía", "falla", "roto", "defecto", "problema"],
+    "factura":         ["factura", "factur", "comprobante", "ticket"],
+    "mayor":           ["mayor", "mayorista", "por mayor", "cantidad", "varios"],
+    "original":        ["original", "genuino", "legitimo", "legítimo", "trucho", "falso"],
+    "demora":          ["demora", "tarda", "dias", "días", "tiempo"],
+    "retiro":          ["retiro", "buscar", "paso a buscar", "pickup"],
+    "precio_especial": ["descuento", "rebaja", "más barato", "oferta", "precio especial"],
+    "reclamo":         ["reclamo", "queja", "mal", "no funciona", "no sirve"],
+    "cambio":          ["cambio", "cambiar", "cambié"],
+    "devolucion":      ["devolucion", "devolución", "devolver", "reembolso"],
 }
 
 def normalizar(texto):
@@ -35,65 +35,56 @@ def detectar_categoria(texto):
             return categoria
     return None
 
-def generar_respuesta_con_ia(pregunta, producto_nombre, precio, stock):
+def get_info_producto_real(item_id):
+    try:
+        pub = get_publicacion(item_id)
+        return {
+            "nombre": pub.get("title", item_id),
+            "precio": pub.get("price", 0),
+            "stock": pub.get("available_quantity", 0),
+            "estado": pub.get("status", ""),
+        }
+    except Exception as e:
+        print(f"⚠️ No se pudo obtener info de ML: {e}")
+        for p in PRODUCTOS:
+            if p.get("id") == item_id:
+                return {
+                    "nombre": p.get("nombre", item_id),
+                    "precio": p.get("precio_min", 0),
+                    "stock": p.get("stock_alerta", 0),
+                    "estado": "active",
+                }
+        return {"nombre": item_id, "precio": 0, "stock": 0, "estado": ""}
+
+def generar_respuesta_con_ia(pregunta, info_producto):
+    nombre = info_producto.get("nombre", "")
+    precio = info_producto.get("precio", 0)
+    stock = info_producto.get("stock", 0)
+
     prompt = f"""
-Contexto del negocio:
 {CONTEXTO_NEGOCIO}
 
-Un comprador hizo esta pregunta en MercadoLibre sobre el producto "{producto_nombre}":
+Un comprador hizo esta pregunta en MercadoLibre sobre el producto "{nombre}":
 "{pregunta}"
 
-Precio actual: ${precio:,}
-Stock disponible: {stock} unidades
+Datos actuales:
+- Precio: ${precio:,}
+- Stock: {stock} unidades {"(disponible)" if stock > 0 else "(sin stock)"}
 
-Escribí una respuesta natural, amigable y profesional.
-- Máximo 3 oraciones
-- No uses emojis en exceso
-- No ofrezcas descuentos ni condiciones especiales
-- Si no tenés certeza de algo, decí que lo vas a consultar
-- Empezá con "¡Hola!" 
+Respondé usando SOLO la información del contexto de arriba.
+Si no sabés algo con certeza, decí "Te consulto y te confirmo enseguida."
+Máximo 3 oraciones. Empezá con "¡Hola!"
 """
     return consultar_claude(prompt, max_tokens=200)
 
-def consultar_al_dueno(pregunta_id, texto, item_id, producto_nombre):
+def consultar_al_dueno(pregunta_id, texto, producto_nombre):
     enviar_mensaje(
         f"❓ <b>PREGUNTA REQUIERE TU RESPUESTA</b>\n\n"
         f"Producto: {producto_nombre}\n"
         f"Pregunta: {texto}\n\n"
-        f"Respondé en ML y después confirmame acá con:\n"
-        f"/respondida {pregunta_id}"
+        f"Respondé directamente en ML."
     )
     print(f"📤 Escalada al dueño: '{texto[:50]}'")
-
-def escalar_sin_categoria(pregunta_id, texto, item_id, producto_nombre):
-    # Claude intenta igual, pero avisa al dueño también
-    respuesta_ia = generar_respuesta_con_ia(
-        texto, producto_nombre,
-        precio=0, stock=0
-    )
-    if respuesta_ia:
-        enviar_mensaje(
-            f"🤖 <b>PREGUNTA RESPONDIDA CON IA</b>\n\n"
-            f"Producto: {producto_nombre}\n"
-            f"Pregunta: {texto}\n\n"
-            f"Respuesta enviada:\n{respuesta_ia}\n\n"
-            f"Si querés corregirla, respondé manualmente en ML."
-        )
-        return respuesta_ia
-    else:
-        enviar_mensaje(
-            f"❓ <b>PREGUNTA SIN RESPONDER</b>\n\n"
-            f"Producto: {producto_nombre}\n"
-            f"Pregunta: {texto}\n\n"
-            f"👉 Respondé manualmente en ML"
-        )
-        return None
-
-def get_info_producto(item_id):
-    for p in PRODUCTOS:
-        if p.get("id") == item_id:
-            return p
-    return {"nombre": item_id, "precio_min": 0, "precio_max": 0}
 
 def procesar_preguntas():
     publicaciones = get_mis_publicaciones()
@@ -102,10 +93,11 @@ def procesar_preguntas():
 
     for item_id in publicaciones:
         preguntas = get_preguntas_sin_responder(item_id)
-        producto = get_info_producto(item_id)
-        nombre = producto.get("nombre", item_id)
-        precio = producto.get("precio_min", 0)
-        stock = producto.get("stock_alerta", 0)
+        if not preguntas:
+            continue
+
+        info = get_info_producto_real(item_id)
+        nombre = info.get("nombre", item_id)
 
         for pregunta in preguntas:
             texto = pregunta.get("text", "")
@@ -114,29 +106,37 @@ def procesar_preguntas():
 
             if categoria:
                 regla = REGLAS_RESPUESTA.get(categoria, "AUTOMATICO")
-
                 if regla == "CONSULTAR_DUEÑO":
-                    # Le pregunta al dueño antes de responder
-                    consultar_al_dueno(pregunta_id, texto, item_id, nombre)
+                    consultar_al_dueno(pregunta_id, texto, nombre)
                     total_escaladas += 1
-
                 else:
-                    # Claude genera la respuesta pensando
-                    respuesta = generar_respuesta_con_ia(texto, nombre, precio, stock)
+                    respuesta = generar_respuesta_con_ia(texto, info)
                     if respuesta:
                         responder_pregunta(pregunta_id, respuesta)
                         total_respondidas += 1
-                        print(f"✅ Respondida con IA: '{texto[:50]}'")
+                        enviar_mensaje(
+                            f"🤖 <b>Pregunta respondida</b>\n\n"
+                            f"Producto: {nombre}\n"
+                            f"Pregunta: {texto}\n"
+                            f"Respuesta: {respuesta}"
+                        )
                     else:
-                        consultar_al_dueno(pregunta_id, texto, item_id, nombre)
+                        consultar_al_dueno(pregunta_id, texto, nombre)
                         total_escaladas += 1
             else:
-                # Categoría desconocida — Claude intenta y avisa
-                respuesta = escalar_sin_categoria(pregunta_id, texto, item_id, nombre)
+                # Cualquier pregunta que no tenga keyword — Claude igual responde
+                respuesta = generar_respuesta_con_ia(texto, info)
                 if respuesta:
                     responder_pregunta(pregunta_id, respuesta)
                     total_respondidas += 1
+                    enviar_mensaje(
+                        f"🤖 <b>Pregunta respondida</b>\n\n"
+                        f"Producto: {nombre}\n"
+                        f"Pregunta: {texto}\n"
+                        f"Respuesta: {respuesta}"
+                    )
                 else:
+                    consultar_al_dueno(pregunta_id, texto, nombre)
                     total_escaladas += 1
 
     if total_respondidas > 0 or total_escaladas > 0:
