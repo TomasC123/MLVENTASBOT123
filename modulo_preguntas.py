@@ -38,10 +38,11 @@ def detectar_categoria(texto):
 def get_info_producto_real(item_id):
     try:
         pub = get_publicacion(item_id)
+        stock = pub.get("available_quantity", 0)
         return {
             "nombre": pub.get("title", item_id),
             "precio": pub.get("price", 0),
-            "stock": pub.get("available_quantity", 0),
+            "stock": stock,
             "estado": pub.get("status", ""),
         }
     except Exception as e:
@@ -51,10 +52,10 @@ def get_info_producto_real(item_id):
                 return {
                     "nombre": p.get("nombre", item_id),
                     "precio": p.get("precio_min", 0),
-                    "stock": p.get("stock_alerta", 0),
+                    "stock": 99,
                     "estado": "active",
                 }
-        return {"nombre": item_id, "precio": 0, "stock": 0, "estado": ""}
+        return {"nombre": item_id, "precio": 0, "stock": 99, "estado": "active"}
 
 def generar_respuesta_con_ia(pregunta, info_producto):
     nombre = info_producto.get("nombre", "")
@@ -124,7 +125,6 @@ def procesar_preguntas():
                         consultar_al_dueno(pregunta_id, texto, nombre)
                         total_escaladas += 1
             else:
-                # Cualquier pregunta que no tenga keyword — Claude igual responde
                 respuesta = generar_respuesta_con_ia(texto, info)
                 if respuesta:
                     responder_pregunta(pregunta_id, respuesta)
